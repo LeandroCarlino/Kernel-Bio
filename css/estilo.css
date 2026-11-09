@@ -245,6 +245,58 @@ h1, h2 { margin: 0; }
 
 .panel__texto strong { color: var(--texto); }
 
+/* Gráfico de escalado */
+.grafico {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 0.75rem;
+  border: 1px solid var(--linea);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.grafico__leyenda {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.4rem 0 0;
+  font-size: 0.66rem;
+  color: var(--texto-tenue);
+}
+
+.grafico__leyenda .punto + .punto { margin-left: 0.6rem; }
+
+.grafico__factor {
+  margin-left: auto;
+  color: var(--texto);
+  font-variant-numeric: tabular-nums;
+}
+
+.punto {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+
+.punto--grilla { background: var(--verde); }
+.punto--bruta { background: #ff6b6b; }
+
+.metricas--inspector { margin-top: 0.6rem; }
+.metricas--inspector dd { font-size: 0.92rem; }
+
+select {
+  width: 100%;
+  padding: 0.4rem;
+  border: 1px solid var(--linea);
+  border-radius: 4px;
+  background: #000;
+  color: var(--verde);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
 /* Controles */
 .fila {
   display: flex;

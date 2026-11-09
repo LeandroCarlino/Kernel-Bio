@@ -1,30 +1,25 @@
-import { SpatialHash, queryBruteForce } from './spatial-hash.js';
+import { PRESETS, PRESET_POR_DEFECTO, leerUrl, escribirUrl } from './config.js';
+import {
+  crearMundo,
+  crearCelula,
+  pasoMundo,
+  sembrarNutrientes,
+  inspeccionarConsulta,
+} from './mundo.js';
 
 const TAU = Math.PI * 2;
 
-const CONFIG = {
-  maxCelulas: 700,
-  radioVecindad: 36,
-  radioSeparacion: 16,
-  velocidadBase: 46,
-  celdaHash: 48,
-  celdaNutriente: 26,
-  decaimiento: 0.045,
-  costoPorPixel: 0.0009,
-  energiaMax: 2.6,
-  energiaParaDividir: 1.9,
-  energiaInicial: 1.1,
-  comida: 1.6,
-  regeneracion: 0.03,
-};
 
 const lienzo = document.getElementById('lienzo');
 const ctx = lienzo.getContext('2d', { alpha: false });
 const pista = document.getElementById('pista');
+const grafico = document.getElementById('grafico');
+const ctxGrafico = grafico.getContext('2d');
 const reducirMovimiento = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const ui = {
   celulas: document.getElementById('m-celulas'),
+  depredadores: document.getElementById('m-depredadores'),
   fps: document.getElementById('m-fps'),
   celdas: document.getElementById('m-celdas'),
   checks: document.getElementById('m-checks'),
@@ -38,46 +33,51 @@ const ui = {
   bruta: document.getElementById('btn-bruta'),
   velocidad: document.getElementById('velocidad'),
   velocidadValor: document.getElementById('velocidad-valor'),
+  preset: document.getElementById('preset'),
+  inspector: document.getElementById('inspector'),
+  inspectorDatos: document.getElementById('inspector-datos'),
+  iCeldas: document.getElementById('i-celdas'),
+  iDistancias: document.getElementById('i-distancias'),
+  iVecinas: document.getElementById('i-vecinas'),
+  seleccion: document.getElementById('seleccion'),
+  factor: document.getElementById('grafico-factor'),
 };
+
+const opciones = leerUrl();
 
 const estado = {
   corriendo: true,
   velocidad: 1,
-  mostrarGrilla: false,
+  mostrarGrilla: opciones.grilla,
   mostrarNutrientes: true,
-  fuerzaBruta: false,
-  celulas: [],
-  nutrientes: null,
-  cols: 0,
-  filas: 0,
-  checks: 0,
-  checksBrutos: 0,
-  ultimoHash: 0,
-  hash: new SpatialHash(CONFIG.celdaHash),
+  fuerzaBruta: opciones.bruta,
+  preset: opciones.preset,
+  seleccionada: null,
+  cursor: null,
+  inspeccion: null,
   fps: 60,
+  muestras: [],
 };
 
 let ancho = 0;
 let alto = 0;
 let dpr = 1;
+let mundo = null;
 let ultimoTiempo = 0;
 let frames = 0;
 let acumulador = 0;
+let acumuladorInspector = 0;
 let pistaOculta = false;
 
 const capaNutrientes = document.createElement('canvas');
 const ctxNutrientes = capaNutrientes.getContext('2d');
 
-/* ------------------------------------------------------------------ setup */
+/* ------------------------------------------------------------------ mundo */
 
 function ajustarLienzo() {
   const rect = lienzo.getBoundingClientRect();
-  const nuevoAncho = Math.max(1, Math.round(rect.width));
-  const nuevoAlto = Math.max(1, Math.round(rect.height));
-  if (nuevoAncho === ancho && nuevoAlto === alto) return;
-
-  ancho = nuevoAncho;
-  alto = nuevoAlto;
+  ancho = Math.max(1, Math.round(rect.width));
+  alto = Math.max(1, Math.round(rect.height));
   dpr = Math.min(window.devicePixelRatio || 1, 2);
 
   lienzo.width = Math.round(ancho * dpr);
@@ -85,220 +85,49 @@ function ajustarLienzo() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = '#030805';
   ctx.fillRect(0, 0, ancho, alto);
+}
 
-  crearNutrientes();
+function crearMundoActual(usarUrl = false) {
+  const preset = PRESETS[estado.preset] ?? PRESETS[PRESET_POR_DEFECTO];
+  const cantidad = usarUrl ? (opciones.celulas ?? preset.celulasIniciales) : preset.celulasIniciales;
+  mundo = crearMundo({
+    ancho,
+    alto,
+    config: preset,
+    celulas: cantidad,
+  });
 
-  for (const celula of estado.celulas) {
-    celula.x = Math.min(Math.max(celula.x, 4), ancho - 4);
-    celula.y = Math.min(Math.max(celula.y, 4), alto - 4);
+  capaNutrientes.width = mundo.cols;
+  capaNutrientes.height = mundo.filas;
+  estado.muestras = [];
+  estado.seleccionada = null;
+  estado.inspeccion = null;
+}
+
+function redimensionarMundo() {
+  if (!mundo) return;
+  mundo.ancho = ancho;
+  mundo.alto = alto;
+  for (const entidad of [...mundo.celulas, ...mundo.depredadores]) {
+    entidad.x = Math.min(Math.max(entidad.x, 4), ancho - 4);
+    entidad.y = Math.min(Math.max(entidad.y, 4), alto - 4);
   }
+  capaNutrientes.width = mundo.cols;
+  capaNutrientes.height = mundo.filas;
 }
 
-function crearNutrientes() {
-  const cols = Math.max(4, Math.round(ancho / CONFIG.celdaNutriente));
-  const filas = Math.max(4, Math.round(alto / CONFIG.celdaNutriente));
-  const datos = new Float32Array(cols * filas);
-  for (let i = 0; i < datos.length; i++) datos[i] = Math.random() * 0.75;
-
-  estado.nutrientes = datos;
-  estado.cols = cols;
-  estado.filas = filas;
-  capaNutrientes.width = cols;
-  capaNutrientes.height = filas;
-}
-
-function crearCelula(x, y, energia, vx, vy) {
-  return {
-    x,
-    y,
-    vx: vx ?? (Math.random() - 0.5) * CONFIG.velocidadBase,
-    vy: vy ?? (Math.random() - 0.5) * CONFIG.velocidadBase,
-    energia: energia ?? CONFIG.energiaInicial,
-    radio: 2.4 + Math.random() * 1.6,
-    edad: 0,
-  };
-}
-
-function reiniciar() {
-  estado.celulas = [];
-  estado.checks = 0;
-  estado.checksBrutos = 0;
-  estado.ultimoHash = 0;
-  estado.hash.clear();
-
-  const cantidad = Math.round(Math.min(180, (ancho * alto) / 3200));
-  for (let i = 0; i < cantidad; i++) {
-    estado.celulas.push(crearCelula(Math.random() * ancho, Math.random() * alto));
-  }
-}
-
-/* --------------------------------------------------------------- nutrientes */
-
-function indiceNutriente(x, y) {
-  const cx = Math.floor(x / CONFIG.celdaNutriente);
-  const cy = Math.floor(y / CONFIG.celdaNutriente);
-  if (cx < 0 || cy < 0 || cx >= estado.cols || cy >= estado.filas) return -1;
-  return cy * estado.cols + cx;
-}
-
-function comer(zona, cantidad) {
-  if (zona < 0) return 0;
-  const disponible = estado.nutrientes[zona];
-  const tomado = Math.min(disponible, cantidad);
-  estado.nutrientes[zona] = disponible - tomado;
-  return tomado;
-}
-
-function gradiente(x, y) {
-  const paso = CONFIG.celdaNutriente;
-  const izquierda = indiceNutriente(x - paso, y);
-  const derecha = indiceNutriente(x + paso, y);
-  const arriba = indiceNutriente(x, y - paso);
-  const abajo = indiceNutriente(x, y + paso);
-
-  const gx = (derecha >= 0 ? estado.nutrientes[derecha] : 0) - (izquierda >= 0 ? estado.nutrientes[izquierda] : 0);
-  const gy = (abajo >= 0 ? estado.nutrientes[abajo] : 0) - (arriba >= 0 ? estado.nutrientes[arriba] : 0);
-  return { gx, gy };
-}
-
-function regenerar(dt) {
-  const datos = estado.nutrientes;
-  const incremento = CONFIG.regeneracion * dt;
-  for (let i = 0; i < datos.length; i++) {
-    if (datos[i] < 1) datos[i] = Math.min(1, datos[i] + incremento);
-  }
-}
-
-/* -------------------------------------------------------------- simulación */
-
-function paso(dt) {
-  const celulas = estado.celulas;
-  const hash = estado.hash;
-  const maxVelocidad = CONFIG.velocidadBase * estado.velocidad;
-  const nacidas = [];
-
-  estado.checksBrutos = 0;
-  hash.clear();
-  for (const celula of celulas) hash.insert(celula);
-
-  for (const celula of celulas) {
-    let vecinos;
-
-    if (estado.fuerzaBruta) {
-      estado.checksBrutos += celulas.length;
-      vecinos = queryBruteForce(celulas, celula.x, celula.y, CONFIG.radioVecindad, (otra) => otra !== celula);
-    } else {
-      vecinos = hash.query(celula.x, celula.y, CONFIG.radioVecindad, (otra) => otra !== celula);
-    }
-
-    let ax = 0;
-    let ay = 0;
-
-    // Separación: si están muy juntas, se empujan.
-    for (const otra of vecinos) {
-      const dx = celula.x - otra.x;
-      const dy = celula.y - otra.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > 0 && d2 < CONFIG.radioSeparacion ** 2) {
-        const d = Math.sqrt(d2);
-        const fuerza = (1 - d / CONFIG.radioSeparacion) / d;
-        ax += dx * fuerza;
-        ay += dy * fuerza;
-      }
-    }
-
-    // Cohesión muy suave: forman colonias sin pegarse.
-    if (vecinos.length > 0) {
-      let cx = 0;
-      let cy = 0;
-      for (const otra of vecinos) {
-        cx += otra.x;
-        cy += otra.y;
-      }
-      cx /= vecinos.length;
-      cy /= vecinos.length;
-      ax += (cx - celula.x) * 0.012;
-      ay += (cy - celula.y) * 0.012;
-    }
-
-    // Quimiotaxis: suben el gradiente de nutrientes.
-    const { gx, gy } = gradiente(celula.x, celula.y);
-    ax += gx * 220;
-    ay += gy * 220;
-
-    // Ruido vital.
-    ax += (Math.random() - 0.5) * 40;
-    ay += (Math.random() - 0.5) * 40;
-
-    celula.vx += ax * dt;
-    celula.vy += ay * dt;
-
-    const rapidez = Math.hypot(celula.vx, celula.vy);
-    if (rapidez > maxVelocidad) {
-      celula.vx = (celula.vx / rapidez) * maxVelocidad;
-      celula.vy = (celula.vy / rapidez) * maxVelocidad;
-    }
-
-    const desplazamientoX = celula.vx * dt;
-    const desplazamientoY = celula.vy * dt;
-    celula.x += desplazamientoX;
-    celula.y += desplazamientoY;
-    celula.edad += dt;
-
-    // Rebote en los bordes.
-    if (celula.x < 3) { celula.x = 3; celula.vx = Math.abs(celula.vx); }
-    if (celula.x > ancho - 3) { celula.x = ancho - 3; celula.vx = -Math.abs(celula.vx); }
-    if (celula.y < 3) { celula.y = 3; celula.vy = Math.abs(celula.vy); }
-    if (celula.y > alto - 3) { celula.y = alto - 3; celula.vy = -Math.abs(celula.vy); }
-
-    // Metabolismo y alimentación.
-    const distancia = Math.hypot(desplazamientoX, desplazamientoY);
-    celula.energia -= CONFIG.decaimiento * dt + distancia * CONFIG.costoPorPixel;
-
-    const zona = indiceNutriente(celula.x, celula.y);
-    const tomado = comer(zona, dt * 0.9);
-    if (tomado > 0) {
-      celula.energia = Math.min(CONFIG.energiaMax, celula.energia + tomado * CONFIG.comida);
-    }
-
-    // División si está bien alimentada y hay espacio.
-    if (
-      celula.energia >= CONFIG.energiaParaDividir &&
-      celulas.length + nacidas.length < CONFIG.maxCelulas &&
-      vecinos.length < 6
-    ) {
-      celula.energia /= 2;
-      nacidas.push(
-        crearCelula(
-          celula.x + (Math.random() - 0.5) * 6,
-          celula.y + (Math.random() - 0.5) * 6,
-          celula.energia * 0.9,
-          celula.vx * 0.8 + (Math.random() - 0.5) * 20,
-          celula.vy * 0.8 + (Math.random() - 0.5) * 20,
-        ),
-      );
-    }
-  }
-
-  for (const nacida of nacidas) estado.celulas.push(nacida);
-
-  // Mueren las que se quedaron sin energía.
-  estado.celulas = estado.celulas.filter((celula) => celula.energia > 0);
-
-  if (!estado.fuerzaBruta) {
-    estado.checks = hash.tests;
-    estado.ultimoHash = hash.tests;
-  } else {
-    estado.checks = estado.checksBrutos;
-  }
-
-  regenerar(dt);
+function cambiarPreset(nombre) {
+  estado.preset = PRESETS[nombre] ? nombre : PRESET_POR_DEFECTO;
+  ui.preset.value = estado.preset;
+  crearMundoActual();
+  sincronizarUrl();
+  actualizarPanel();
 }
 
 /* ---------------------------------------------------------------- dibujado */
 
 function dibujarNutrientes() {
-  const { cols, filas, nutrientes } = estado;
+  const { cols, filas, nutrientes } = mundo;
   const imagen = ctxNutrientes.createImageData(cols, filas);
 
   for (let i = 0; i < nutrientes.length; i++) {
@@ -317,36 +146,66 @@ function dibujarNutrientes() {
   ctx.globalAlpha = 1;
 }
 
-function dibujar() {
-  // Estela: en vez de limpiar, se oscurece el cuadro anterior.
-  ctx.fillStyle = reducirMovimiento ? '#030805' : 'rgba(3, 8, 5, 0.22)';
-  ctx.fillRect(0, 0, ancho, alto);
+function dibujarGrilla() {
+  ctx.strokeStyle = 'rgba(68, 255, 136, 0.12)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x <= ancho; x += mundo.cfg.celdaHash) {
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, alto);
+  }
+  for (let y = 0; y <= alto; y += mundo.cfg.celdaHash) {
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(ancho, y + 0.5);
+  }
+  ctx.stroke();
 
-  if (estado.mostrarNutrientes) dibujarNutrientes();
+  ctx.fillStyle = 'rgba(68, 255, 136, 0.05)';
+  for (const [clave] of mundo.hash.buckets) {
+    const [cx, cy] = clave.split(',').map(Number);
+    ctx.fillRect(
+      cx * mundo.cfg.celdaHash,
+      cy * mundo.cfg.celdaHash,
+      mundo.cfg.celdaHash,
+      mundo.cfg.celdaHash,
+    );
+  }
+}
 
-  if (estado.mostrarGrilla) {
-    ctx.strokeStyle = 'rgba(68, 255, 136, 0.12)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let x = 0; x <= ancho; x += CONFIG.celdaHash) {
-      ctx.moveTo(x + 0.5, 0);
-      ctx.lineTo(x + 0.5, alto);
-    }
-    for (let y = 0; y <= alto; y += CONFIG.celdaHash) {
-      ctx.moveTo(0, y + 0.5);
-      ctx.lineTo(ancho, y + 0.5);
-    }
-    ctx.stroke();
+function dibujarInspector() {
+  if (!estado.inspeccion) return;
+  const { radio, celdas, vecinos } = estado.inspeccion;
+  const paso = mundo.cfg.celdaHash;
 
-    ctx.fillStyle = 'rgba(68, 255, 136, 0.05)';
-    for (const [clave] of estado.hash.buckets) {
-      const [cx, cy] = clave.split(',').map(Number);
-      ctx.fillRect(cx * CONFIG.celdaHash, cy * CONFIG.celdaHash, CONFIG.celdaHash, CONFIG.celdaHash);
-    }
+  ctx.fillStyle = 'rgba(120, 200, 255, 0.10)';
+  for (const celda of celdas) {
+    ctx.fillRect(celda.cx * paso, celda.cy * paso, paso, paso);
   }
 
-  for (const celula of estado.celulas) {
-    const energia = Math.min(1, celula.energia / CONFIG.energiaMax);
+  ctx.strokeStyle = 'rgba(120, 200, 255, 0.75)';
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  ctx.arc(estado.inspeccion.x, estado.inspeccion.y, radio, 0, TAU);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle = 'rgba(120, 200, 255, 0.35)';
+  ctx.beginPath();
+  for (const vecino of vecinos) {
+    ctx.moveTo(estado.inspeccion.x, estado.inspeccion.y);
+    ctx.lineTo(vecino.x, vecino.y);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = '#b9e6ff';
+  ctx.beginPath();
+  ctx.arc(estado.inspeccion.x, estado.inspeccion.y, 2.5, 0, TAU);
+  ctx.fill();
+}
+
+function dibujarCelulas() {
+  for (const celula of mundo.celulas) {
+    const energia = Math.min(1, celula.energia / mundo.cfg.energiaMax);
 
     if (!reducirMovimiento) {
       ctx.fillStyle = 'rgba(68, 255, 136, 0.07)';
@@ -364,7 +223,96 @@ function dibujar() {
     ctx.beginPath();
     ctx.arc(celula.x - celula.radio * 0.3, celula.y - celula.radio * 0.3, celula.radio * 0.35, 0, TAU);
     ctx.fill();
+
+    if (estado.seleccionada === celula.id) {
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(celula.x, celula.y, celula.radio + 7, 0, TAU);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
   }
+}
+
+function dibujarDepredadores() {
+  for (const depredador of mundo.depredadores) {
+    const angulo = Math.atan2(depredador.vy, depredador.vx);
+    ctx.save();
+    ctx.translate(depredador.x, depredador.y);
+    ctx.rotate(angulo);
+
+    ctx.fillStyle = 'rgba(255, 107, 107, 0.16)';
+    ctx.beginPath();
+    ctx.arc(0, 0, depredador.radio * 4, 0, TAU);
+    ctx.fill();
+
+    ctx.fillStyle = '#ff6b6b';
+    ctx.beginPath();
+    ctx.moveTo(10, 0);
+    ctx.lineTo(-6, 6);
+    ctx.lineTo(-3, 0);
+    ctx.lineTo(-6, -6);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+function dibujar() {
+  ctx.fillStyle = reducirMovimiento ? '#030805' : 'rgba(3, 8, 5, 0.22)';
+  ctx.fillRect(0, 0, ancho, alto);
+
+  if (estado.mostrarNutrientes) dibujarNutrientes();
+  if (estado.mostrarGrilla) dibujarGrilla();
+
+  dibujarCelulas();
+  dibujarDepredadores();
+  dibujarInspector();
+}
+
+/* ----------------------------------------------------------------- gráfico */
+
+function dibujarGrafico() {
+  const anchoG = grafico.width;
+  const altoG = grafico.height;
+  ctxGrafico.clearRect(0, 0, anchoG, altoG);
+
+  const muestras = estado.muestras;
+  if (muestras.length < 2) {
+    ctxGrafico.fillStyle = 'rgba(111, 138, 124, 0.8)';
+    ctxGrafico.font = '11px ui-monospace, monospace';
+    ctxGrafico.fillText('midiendo…', 8, altoG / 2);
+    return;
+  }
+
+  const maximo = Math.log10(Math.max(1, ...muestras.map((m) => Math.max(m.grilla, m.bruta))) + 1);
+
+  const trazar = (clave, color) => {
+    ctxGrafico.strokeStyle = color;
+    ctxGrafico.lineWidth = 2;
+    ctxGrafico.beginPath();
+    muestras.forEach((muestra, i) => {
+      const x = (i / (muestras.length - 1)) * (anchoG - 8) + 4;
+      const proporcion = Math.log10(Math.max(0, muestra[clave]) + 1) / maximo;
+      const y = altoG - 6 - proporcion * (altoG - 16);
+      if (i === 0) ctxGrafico.moveTo(x, y);
+      else ctxGrafico.lineTo(x, y);
+    });
+    ctxGrafico.stroke();
+  };
+
+  // Línea base y ambas series.
+  ctxGrafico.strokeStyle = 'rgba(68, 255, 136, 0.12)';
+  ctxGrafico.lineWidth = 1;
+  ctxGrafico.beginPath();
+  ctxGrafico.moveTo(0, altoG - 6);
+  ctxGrafico.lineTo(anchoG, altoG - 6);
+  ctxGrafico.stroke();
+
+  trazar('bruta', '#ff6b6b');
+  trazar('grilla', '#44ff88');
 }
 
 /* -------------------------------------------------------------------- HUD */
@@ -374,23 +322,93 @@ function numero(valor) {
 }
 
 function actualizarPanel() {
-  ui.celulas.textContent = numero(estado.celulas.length);
+  if (!mundo) return;
+
+  const celulas = mundo.celulas.length;
+  const depredadores = mundo.depredadores.length;
+  const bruto = celulas * Math.max(1, celulas - 1) + depredadores * celulas;
+
+  ui.celulas.textContent = numero(celulas);
+  ui.depredadores.textContent = numero(depredadores);
   ui.fps.textContent = numero(estado.fps);
-  ui.checks.textContent = numero(estado.checks);
+  ui.checks.textContent = numero(mundo.checks);
   ui.modo.textContent = estado.fuerzaBruta ? 'Fuerza bruta' : 'Grilla espacial';
-  ui.celdas.textContent = estado.fuerzaBruta ? '—' : numero(estado.hash.occupiedCells);
+  ui.celdas.textContent = estado.fuerzaBruta ? '—' : numero(mundo.hash.occupiedCells);
 
   if (estado.fuerzaBruta) {
-    const veces = estado.ultimoHash > 0 ? Math.round(estado.checks / estado.ultimoHash) : 0;
+    const veces = mundo.ultimoHash > 0 ? Math.round(mundo.checks / mundo.ultimoHash) : 0;
     ui.ahorro.textContent =
       veces > 0
-        ? `≈ ${numero(veces)}× más comparaciones que con la grilla (${numero(estado.ultimoHash)}).`
+        ? `≈ ${numero(veces)}× más comparaciones que con la grilla (${numero(mundo.ultimoHash)}).`
         : 'Comparando cada célula contra todas las demás.';
   } else {
     ui.ahorro.textContent = `Cada consulta revisa solo las celdas cercanas: ${numero(
-      estado.checks,
+      mundo.checks,
     )} comparaciones en el último frame.`;
   }
+
+  estado.muestras.push({
+    grilla: estado.fuerzaBruta ? mundo.ultimoHash || mundo.checks : mundo.checks,
+    bruta: bruto,
+  });
+  if (estado.muestras.length > 60) estado.muestras.shift();
+  dibujarGrafico();
+
+  const veces = mundo.checks > 0 ? Math.max(1, Math.round(bruto / Math.max(1, mundo.checks))) : 0;
+  ui.factor.textContent = veces
+    ? `${numero(mundo.checks)} vs ${numero(bruto)} · ${numero(veces)}× menos`
+    : '';
+}
+
+/* --------------------------------------------------------------- inspector */
+
+function actualizarInspector() {
+  if (!mundo) return;
+
+  // La selección se muestra aunque el cursor no esté sobre el lienzo.
+  const elegida = estado.seleccionada
+    ? mundo.celulas.find((celula) => celula.id === estado.seleccionada)
+    : null;
+
+  if (elegida) {
+    ui.seleccion.hidden = false;
+    ui.seleccion.textContent = `Seleccionada: energía ${elegida.energia.toFixed(2)} · edad ${elegida.edad.toFixed(1)} s · ${Math.round(
+      Math.hypot(elegida.vx, elegida.vy),
+    )} px/s`;
+  } else {
+    estado.seleccionada = null;
+    ui.seleccion.hidden = true;
+  }
+
+  if (!estado.cursor) return;
+
+  const { x, y } = estado.cursor;
+  const cercanas = mundo.hash.query(x, y, 26);
+  let objetivo = null;
+  let mejor = Infinity;
+  for (const celula of cercanas) {
+    const d = Math.hypot(celula.x - x, celula.y - y);
+    if (d < mejor) {
+      mejor = d;
+      objetivo = celula;
+    }
+  }
+
+  if (!objetivo) {
+    estado.inspeccion = null;
+    ui.inspector.textContent = 'Pasá el mouse sobre el lienzo para inspeccionar una célula.';
+    ui.inspectorDatos.hidden = true;
+    return;
+  }
+
+  const consulta = inspeccionarConsulta(mundo, objetivo.x, objetivo.y);
+  estado.inspeccion = { ...consulta, x: objetivo.x, y: objetivo.y };
+
+  ui.inspectorDatos.hidden = false;
+  ui.iCeldas.textContent = numero(consulta.celdas.length);
+  ui.iDistancias.textContent = numero(consulta.evaluadas);
+  ui.iVecinas.textContent = numero(consulta.vecinos.length);
+  ui.inspector.textContent = 'Consulta simulada de la célula bajo el cursor:';
 }
 
 /* --------------------------------------------------------------- controles */
@@ -401,19 +419,30 @@ function alternarPausa() {
   ui.pausa.setAttribute('aria-pressed', String(!estado.corriendo));
 }
 
+function sincronizarUrl() {
+  escribirUrl({
+    preset: estado.preset,
+    celulas: mundo ? mundo.celulas.length : null,
+    bruta: estado.fuerzaBruta,
+    grilla: estado.mostrarGrilla,
+  });
+}
+
 ui.pausa.addEventListener('click', alternarPausa);
 
 ui.reiniciar.addEventListener('click', () => {
-  reiniciar();
+  crearMundoActual();
   actualizarPanel();
 });
 
 ui.agregar.addEventListener('click', () => {
-  const espacio = CONFIG.maxCelulas - estado.celulas.length;
+  if (!mundo) return;
+  const espacio = mundo.cfg.maxCelulas - mundo.celulas.length;
   const cantidad = Math.min(50, espacio);
   for (let i = 0; i < cantidad; i++) {
-    estado.celulas.push(crearCelula(Math.random() * ancho, Math.random() * alto));
+    mundo.celulas.push(crearCelula(mundo, mundo.rnd() * ancho, mundo.rnd() * alto));
   }
+  sincronizarUrl();
   actualizarPanel();
 });
 
@@ -425,35 +454,66 @@ ui.nutrientes.addEventListener('click', () => {
 ui.grilla.addEventListener('click', () => {
   estado.mostrarGrilla = !estado.mostrarGrilla;
   ui.grilla.setAttribute('aria-pressed', String(estado.mostrarGrilla));
+  sincronizarUrl();
 });
 
 ui.bruta.addEventListener('click', () => {
   estado.fuerzaBruta = !estado.fuerzaBruta;
-  estado.checks = 0;
-  estado.checksBrutos = 0;
+  mundo.checksBrutos = 0;
   ui.bruta.setAttribute('aria-pressed', String(estado.fuerzaBruta));
+  sincronizarUrl();
   actualizarPanel();
 });
 
 ui.velocidad.addEventListener('input', () => {
   estado.velocidad = Number(ui.velocidad.value);
+  if (mundo) mundo.velocidad = estado.velocidad;
   ui.velocidadValor.textContent = `${estado.velocidad.toString().replace('.', ',')}×`;
 });
 
+ui.preset.addEventListener('change', () => {
+  cambiarPreset(ui.preset.value);
+});
+
+lienzo.addEventListener('pointermove', (evento) => {
+  const rect = lienzo.getBoundingClientRect();
+  estado.cursor = {
+    x: ((evento.clientX - rect.left) / rect.width) * ancho,
+    y: ((evento.clientY - rect.top) / rect.height) * alto,
+  };
+});
+
+lienzo.addEventListener('pointerleave', () => {
+  estado.cursor = null;
+  estado.inspeccion = null;
+  ui.inspectorDatos.hidden = true;
+  ui.inspector.textContent = 'Pasá el mouse sobre el lienzo para inspeccionar una célula.';
+});
+
 lienzo.addEventListener('pointerdown', (evento) => {
+  if (!mundo) return;
   const rect = lienzo.getBoundingClientRect();
   const x = ((evento.clientX - rect.left) / rect.width) * ancho;
   const y = ((evento.clientY - rect.top) / rect.height) * alto;
-  const paso = CONFIG.celdaNutriente;
 
-  for (let dy = -3; dy <= 3; dy++) {
-    for (let dx = -3; dx <= 3; dx++) {
-      if (dx * dx + dy * dy > 9) continue;
-      const zona = indiceNutriente(x + dx * paso, y + dy * paso);
-      if (zona >= 0) estado.nutrientes[zona] = Math.min(1, estado.nutrientes[zona] + 0.85);
+  // Primero intenta seleccionar una célula; si no hay, siembra nutrientes.
+  const cercanas = mundo.hash.query(x, y, 26);
+  let objetivo = null;
+  let mejor = Infinity;
+  for (const celula of cercanas) {
+    const d = Math.hypot(celula.x - x, celula.y - y);
+    if (d < mejor) {
+      mejor = d;
+      objetivo = celula;
     }
   }
 
+  if (objetivo) {
+    estado.seleccionada = objetivo.id;
+    return;
+  }
+
+  sembrarNutrientes(mundo, x, y, 3, 0.85);
   if (!pistaOculta) {
     pistaOculta = true;
     pista.classList.add('escenario__pista--oculta');
@@ -461,7 +521,7 @@ lienzo.addEventListener('pointerdown', (evento) => {
 });
 
 document.addEventListener('keydown', (evento) => {
-  if (evento.target instanceof HTMLInputElement) return;
+  if (evento.target instanceof HTMLInputElement || evento.target instanceof HTMLSelectElement) return;
 
   const tecla = evento.key.toLowerCase();
   if (tecla === ' ') { evento.preventDefault(); alternarPausa(); }
@@ -469,6 +529,7 @@ document.addEventListener('keydown', (evento) => {
   if (tecla === 'g') ui.grilla.click();
   if (tecla === 'b') ui.bruta.click();
   if (tecla === 'n') ui.nutrientes.click();
+  if (tecla === 'escape') estado.seleccionada = null;
 });
 
 /* ------------------------------------------------------------------ bucle */
@@ -479,8 +540,8 @@ function bucle(tiempo) {
     ultimoTiempo = tiempo;
     const dt = Math.min(delta, 0.05);
 
-    if (estado.corriendo) {
-      paso(dt);
+    if (estado.corriendo && mundo) {
+      pasoMundo(mundo, dt, { fuerzaBruta: estado.fuerzaBruta });
 
       frames++;
       acumulador += dt;
@@ -492,9 +553,16 @@ function bucle(tiempo) {
       }
     }
 
+    // El inspector se refresca seguido, incluso en pausa (la grilla del
+    // último frame sigue siendo válida).
+    acumuladorInspector += dt;
+    if (acumuladorInspector >= 0.12) {
+      acumuladorInspector = 0;
+      actualizarInspector();
+    }
+
     dibujar();
   } catch (error) {
-    // Un frame roto no debe congelar la simulación para siempre.
     estado.corriendo = false;
     document.body.dataset.error = String(error && error.message ? error.message : error);
     console.error('[Kernel Bio]', error);
@@ -503,14 +571,29 @@ function bucle(tiempo) {
   }
 }
 
+/* ------------------------------------------------------------------ inicio */
+
 ajustarLienzo();
-reiniciar();
+crearMundoActual(true);
+
+for (const [nombre, preset] of Object.entries(PRESETS)) {
+  const opcion = document.createElement('option');
+  opcion.value = nombre;
+  opcion.textContent = preset.etiqueta;
+  ui.preset.appendChild(opcion);
+}
+ui.preset.value = estado.preset;
+
+ui.grilla.setAttribute('aria-pressed', String(estado.mostrarGrilla));
+ui.bruta.setAttribute('aria-pressed', String(estado.fuerzaBruta));
+mundo.velocidad = estado.velocidad;
+estado.fps = 60;
 actualizarPanel();
-ui.velocidadValor.textContent = '1×';
+sincronizarUrl();
 
 new ResizeObserver(() => {
   ajustarLienzo();
+  redimensionarMundo();
   actualizarPanel();
 }).observe(lienzo);
-
 requestAnimationFrame(bucle);

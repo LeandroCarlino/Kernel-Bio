@@ -45,16 +45,43 @@
         <h2 class="panel__titulo">Diagnóstico</h2>
         <dl class="metricas">
           <div><dt>Células</dt><dd id="m-celulas">0</dd></div>
+          <div><dt>Depredadores</dt><dd id="m-depredadores">0</dd></div>
           <div><dt>FPS</dt><dd id="m-fps">—</dd></div>
           <div><dt>Celdas ocupadas</dt><dd id="m-celdas">0</dd></div>
-          <div><dt>Consultas/frame</dt><dd id="m-checks">0</dd></div>
+          <div class="metricas__ancho"><dt>Consultas/frame</dt><dd id="m-checks">0</dd></div>
           <div class="metricas__ancho"><dt>Modo</dt><dd id="m-modo">Grilla espacial</dd></div>
         </dl>
         <p class="panel__nota" id="m-ahorro">—</p>
+
+        <canvas id="grafico" class="grafico" width="520" height="110"
+                aria-label="Comparaciones por frame: grilla contra fuerza bruta"></canvas>
+        <p class="grafico__leyenda">
+          <span class="punto punto--grilla"></span> grilla
+          <span class="punto punto--bruta"></span> fuerza bruta (n²)
+          <span id="grafico-factor" class="grafico__factor"></span>
+        </p>
+      </section>
+
+      <section class="panel__bloque">
+        <h2 class="panel__titulo">Inspector</h2>
+        <p class="panel__texto" id="inspector">
+          Pasá el mouse sobre el lienzo para inspeccionar una célula.
+        </p>
+        <dl class="metricas metricas--inspector" id="inspector-datos" hidden>
+          <div><dt>Celdas visitadas</dt><dd id="i-celdas">0</dd></div>
+          <div><dt>Distancias</dt><dd id="i-distancias">0</dd></div>
+          <div class="metricas__ancho"><dt>Vecinas</dt><dd id="i-vecinas">0</dd></div>
+        </dl>
+        <p class="panel__nota" id="seleccion" hidden></p>
       </section>
 
       <section class="panel__bloque">
         <h2 class="panel__titulo">Controles</h2>
+
+        <label class="campo" for="preset">
+          <span>Escenario</span>
+          <select id="preset"></select>
+        </label>
 
         <div class="fila">
           <button type="button" id="btn-pausa" class="boton boton--principal" aria-pressed="false">Pausar</button>
@@ -81,6 +108,7 @@
           <li><kbd>R</kbd> reinicia</li>
           <li><kbd>G</kbd> grilla</li>
           <li><kbd>B</kbd> fuerza bruta</li>
+          <li><kbd>Esc</kbd> deselecciona</li>
         </ul>
       </section>
 
