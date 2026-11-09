@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kernel Bio — simulación con spatial hashing</title>
+  <meta name="description" content="Simulación de células que comen, se dividen y mueren, con una grilla espacial para consultar vecinos. Compará las consultas contra fuerza bruta en vivo.">
+  <meta name="author" content="Leandro Carlino">
+  <meta name="theme-color" content="#030805">
+  <meta name="color-scheme" content="dark">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Kernel Bio — simulación con spatial hashing">
+  <meta property="og:description" content="Células que comen, se dividen y mueren. Grilla espacial contra fuerza bruta, en vivo.">
+
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/estilo.css">
+  <script type="module" src="js/sim.js"></script>
+</head>
+<body>
+  <a class="salto" href="#panel">Saltar a los controles</a>
+
+  <div class="app">
+    <header class="cabecera">
+      <div class="marca">
+        <span class="marca__pulso" aria-hidden="true"></span>
+        <h1>Kernel Bio</h1>
+        <span class="marca__version">v1.0 · spatial hashing</span>
+      </div>
+      <p class="cabecera__nota">
+        Células que buscan nutrientes, se dividen y mueren. La grilla espacial
+        evita comparar cada célula contra todas las demás.
+      </p>
+    </header>
+
+    <main class="escenario">
+      <canvas id="lienzo" role="img" aria-label="Simulación de células en un medio con nutrientes"></canvas>
+      <p class="escenario__pista" id="pista">
+        Clic o toque para sembrar nutrientes en esa zona.
+      </p>
+    </main>
+
+    <aside class="panel" id="panel" aria-label="Controles y métricas">
+      <section class="panel__bloque">
+        <h2 class="panel__titulo">Diagnóstico</h2>
+        <dl class="metricas">
+          <div><dt>Células</dt><dd id="m-celulas">0</dd></div>
+          <div><dt>FPS</dt><dd id="m-fps">—</dd></div>
+          <div><dt>Celdas ocupadas</dt><dd id="m-celdas">0</dd></div>
+          <div><dt>Consultas/frame</dt><dd id="m-checks">0</dd></div>
+          <div class="metricas__ancho"><dt>Modo</dt><dd id="m-modo">Grilla espacial</dd></div>
+        </dl>
+        <p class="panel__nota" id="m-ahorro">—</p>
+      </section>
+
+      <section class="panel__bloque">
+        <h2 class="panel__titulo">Controles</h2>
+
+        <div class="fila">
+          <button type="button" id="btn-pausa" class="boton boton--principal" aria-pressed="false">Pausar</button>
+          <button type="button" id="btn-reiniciar" class="boton">Reiniciar</button>
+        </div>
+
+        <div class="fila">
+          <button type="button" id="btn-agregar" class="boton">+50 células</button>
+          <button type="button" id="btn-nutrientes" class="boton" aria-pressed="true">Nutrientes</button>
+        </div>
+
+        <label class="campo" for="velocidad">
+          <span>Velocidad <output id="velocidad-valor">1×</output></span>
+          <input type="range" id="velocidad" min="0.25" max="3" step="0.25" value="1">
+        </label>
+
+        <div class="fila">
+          <button type="button" id="btn-grilla" class="boton boton--toggle" aria-pressed="false">Ver grilla</button>
+          <button type="button" id="btn-bruta" class="boton boton--toggle" aria-pressed="false">Fuerza bruta</button>
+        </div>
+
+        <ul class="atajos">
+          <li><kbd>Espacio</kbd> pausa</li>
+          <li><kbd>R</kbd> reinicia</li>
+          <li><kbd>G</kbd> grilla</li>
+          <li><kbd>B</kbd> fuerza bruta</li>
+        </ul>
+      </section>
+
+      <section class="panel__bloque">
+        <h2 class="panel__titulo">Cómo funciona</h2>
+        <p class="panel__texto">
+          Cada célula consulta solo las celdas de la grilla que tocan su radio de
+          visión. Con fuerza bruta compara contra <em>todas</em> las demás: el
+          número de consultas crece al cuadrado.
+        </p>
+        <p class="panel__texto">
+          Cambiá de modo y mirá la diferencia en <strong>consultas/frame</strong>.
+        </p>
+      </section>
+    </aside>
+  </div>
+
+  <footer class="pie">
+    <span>© 2026 Leandro Carlino</span>
+    <a href="https://github.com/LeandroCarlino/Kernel-Bio" target="_blank" rel="noopener">Kernel Bio en GitHub ↗</a>
+  </footer>
+</body>
+</html>

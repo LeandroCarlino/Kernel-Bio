@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Kernel Bio">
+  <rect width="64" height="64" rx="13" fill="#030805"/>
+  <g fill="none" stroke="#44ff88" stroke-width="2" opacity="0.35">
+    <path d="M21 0v64M43 0v64M0 21h64M0 43h64"/>
+  </g>
+  <circle cx="32" cy="32" r="11" fill="none" stroke="#44ff88" stroke-width="2.5"/>
+  <circle cx="32" cy="32" r="4" fill="#44ff88"/>
+  <circle cx="21" cy="21" r="2.5" fill="#44ff88" opacity="0.8"/>
+  <circle cx="45" cy="43" r="2" fill="#44ff88" opacity="0.6"/>
+  <circle cx="44" cy="20" r="1.8" fill="#44ff88" opacity="0.5"/>
+</svg>

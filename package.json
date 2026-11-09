@@ -1,0 +1,11 @@
+{
+  "name": "kernel-bio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Simulación de células con grilla espacial, sin dependencias y sin build.",
+  "scripts": {
+    "test": "node --test tests/",
+    "serve": "python -m http.server 8000"
+  }
+}
